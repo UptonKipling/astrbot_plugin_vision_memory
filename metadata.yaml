@@ -7,7 +7,7 @@ desc: |
   内置预设库（魔裁）、人工视觉添加库和 Bot图片库。三个库均支持逐张参考图视觉特征、真实参考图二次核验和可选 CCIP 特征核验；预设库默认阈值 42%，其余库默认 45%。WebUI 支持多选参考图、顺序上传、进度反馈和失败汇总，上传后自动提取可用特征；CCIP 依赖安装支持当前 pip 默认源、清华镜像和阿里云镜像顺序回退。
 
   Bot图片库采用管理员手动命名：未知图片默认在“待管理员命名”队列保留 7 天，每个会话最多 20 张。插件不从聊天上下文、用户后续发言或 Bot 回复自动学习名称。管理员在 WebUI 手动命名后才可入库；Bot 自己发送的图片不会进入图片库或待命名队列。
-version: 1.10.1
+version: 1.10.2
 author: UptonKipling
 repo: https://github.com/UptonKipling/astrbot_plugin_vision_memory
 astrbot_version: ">=4.24.1,<6"

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>多模态视觉识图与图片记忆管理</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ASTRBOT · VISION MEMORY</div>
+        <h1>多模态视觉识图与图片记忆管理</h1>
+        <p>UptonKipling · 强制识图 / 三库匹配 / WebUI 管理</p>
+      </div>
+      <div class="top-actions"><button id="refreshBtn" class="ghost">刷新</button><span id="status" class="status" role="status" aria-live="polite">准备就绪</span></div>
+    </header>
+
+    <section class="hero-grid">
+      <div class="hero-card">
+        <div class="hero-title">视觉模型</div>
+        <div class="hero-row"><select id="providerSelect"></select><button id="saveProvider">保存模型</button></div>
+        <div class="muted">插件直接读取 AstrBot 已配置的 Provider，不保存 API Key。请选择支持图片输入的多模态模型。</div>
+      </div>
+      <div class="metric-card"><span>预设库（魔裁）</span><strong id="countCharacters">0</strong><small>默认 42% · 二创友好</small></div>
+      <div class="metric-card"><span>人工视觉添加库</span><strong id="countCustom">0</strong><small>默认 45% · 视觉匹配</small></div>
+      <div class="metric-card"><span>Bot 图片库</span><strong id="countMemory">0</strong><small>7 天遗忘</small></div>
+      <div class="metric-card"><span>待确认图片</span><strong id="pendingCount">0</strong><small>管理员命名后入库</small></div>
+    </section>
+
+    <nav class="tabs" id="tabs">
+      <button data-lib="magic_trial_characters" class="active">预设库（魔裁）</button>
+      <button data-lib="custom_objects">人工视觉添加库</button>
+      <button data-lib="bot_memory">Bot 图片库</button>
+      <button data-lib="pending">待管理员命名 <span id="pendingTabBadge" class="tab-badge">0</span></button>
+      <button data-lib="logs">识别日志</button>
+      <button data-lib="settings">运行设置</button>
+    </nav>
+
+    <main id="main"></main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

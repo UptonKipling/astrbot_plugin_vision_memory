@@ -1,7 +1,7 @@
 # 多模态视觉识图与图片记忆管理
 
 **插件标识：** `astrbot_plugin_vision_memory`  
-**当前版本：** V1.10.1  
+**当前版本：** V1.10.2  
 **作者：** UptonKipling  
 **适用框架：** AstrBot `>=4.24.1,<6`
 
@@ -57,6 +57,14 @@ data/plugins/astrbot_plugin_vision_memory/
 然后重新加载插件。
 
 从旧版升级时，插件标识和数据目录保持不变，已有图片库数据可以继续使用。升级前仍建议备份插件运行数据。
+
+### 面板入口与版本兼容
+
+本插件同时提供 `views/vision-memory/` 和 `pages/vision-memory/` 两套内容相同的面板目录：AstrBot 4.29 系列及后续版本优先读取 `views/`，旧版本可继续读取 `pages/`。新增或更新面板目录后，请重新加载插件并刷新 WebUI 页面。
+
+- AstrBot 4.29 系列：在侧边栏“扩展功能”分组中打开“插件视图”，找到本插件的 `vision-memory` 视图；也可从本插件详情页进入。
+- AstrBot 4.28 系列：从插件管理中的本插件面板入口进入。
+- 面板显示名称统一为“多模态视觉识图与图片记忆管理”，内部插件标识仍为 `astrbot_plugin_vision_memory`。
 
 ## 三、依赖安装与国内镜像回退
 

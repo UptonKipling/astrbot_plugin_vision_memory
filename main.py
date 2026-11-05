@@ -139,7 +139,7 @@ else:
 
 PLUGIN_ID = "astrbot_plugin_vision_memory"
 AUTHOR = "UptonKipling"
-VERSION = "1.10.1"
+VERSION = "1.10.2"
 DATA_VERSION = 9
 
 CHARACTER_NAMES = [
