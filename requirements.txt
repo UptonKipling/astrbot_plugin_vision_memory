@@ -1,0 +1,12 @@
+# Intentionally empty.
+#
+# The `imgutils` python package is published on PyPI as `dghs-imgutils`,
+# which pins numpy<2 in its metadata.  That conflicts with the numpy version
+# pinned by AstrBot core, so declaring it here makes AstrBot's plugin
+# dependency installation fail (pip exit code 1 / dependency protection).
+#
+# The plugin installs dghs-imgutils itself at startup with --no-deps and
+# pulls in its companion dependencies separately - see `_ccip_backend_available`
+# in main.py. Each pip operation tries the configured/default index, then
+# Tsinghua and Aliyun mirrors. CCIP stays optional: without it the plugin
+# falls back to the AstrBot vision provider.

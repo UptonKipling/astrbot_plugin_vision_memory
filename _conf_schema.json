@@ -1,0 +1,242 @@
+{
+  "enabled": {
+    "name": "启用视觉识图",
+    "description": "是否启用本插件的自动识图链路",
+    "type": "bool",
+    "default": true
+  },
+  "vision_provider_id": {
+    "name": "识图模型 Provider ID",
+    "description": "填写 AstrBot 已配置的多模态/视觉模型 Provider ID。留空时可按下方回退策略自动使用当前模型。",
+    "hint": "可在本插件管理面板中直接选择已配置 Provider。",
+    "type": "string",
+    "default": ""
+  },
+  "fallback_to_current_provider": {
+    "name": "无指定模型时使用当前会话模型",
+    "description": "识图模型为空时，优先使用当前会话正在使用的 AstrBot Provider。",
+    "type": "bool",
+    "default": true
+  },
+  "character_threshold": {
+    "name": "魔裁人物匹配阈值",
+    "description": "预设库（魔裁）默认阈值。0.42（42%）为更适合二创图的宽松起点；识别会优先依据脸部、五官、发型等身份特征，不因换装、画师、姿势或背景变化轻易否定。",
+    "type": "float",
+    "default": 0.42,
+    "slider": {
+      "min": 0.1,
+      "max": 1.0,
+      "step": 0.01
+    }
+  },
+  "general_threshold": {
+    "name": "人工视觉添加库与 Bot 图片库匹配阈值",
+    "description": "人工视觉添加库与 Bot 图片库采用宽松身份匹配策略；默认 45%，综合稳定身份特征，不要求与参考图完全一致。",
+    "type": "float",
+    "default": 0.45,
+    "slider": {
+      "min": 0.1,
+      "max": 1.0,
+      "step": 0.01
+    }
+  },
+  "auto_memory_enabled": {
+    "name": "自动上下文命名（已停用）",
+    "description": "v1.8 起永久停用。未知图片只保存到“待管理员命名”，插件绝不会根据聊天上下文、用户发言或 Bot 自己的回复自动给图片命名；仅管理员在 WebUI 手动命名后才能入 Bot 图片库。此字段仅为兼容旧配置，实际固定为关闭。",
+    "type": "bool",
+    "default": false
+  },
+  "auto_memory_retention_days": {
+    "name": "Bot 图片库遗忘天数",
+    "description": "Bot 图片库正式记忆的遗忘天数；连续未被重新识别/提起的栏目会自动删除。",
+    "type": "int",
+    "default": 7,
+    "slider": {
+      "min": 1,
+      "max": 90,
+      "step": 1
+    }
+  },
+  "max_images_per_entry": {
+    "name": "单栏目最多图片数",
+    "description": "每个人物/事物栏目可以绑定多张参考图。",
+    "type": "int",
+    "default": 24,
+    "slider": {
+      "min": 1,
+      "max": 100,
+      "step": 1
+    }
+  },
+  "recognition_timeout_seconds": {
+    "name": "识图超时（秒）",
+    "type": "int",
+    "default": 45,
+    "slider": {
+      "min": 5,
+      "max": 180,
+      "step": 5
+    }
+  },
+  "feature_extraction_timeout_seconds": {
+    "name": "特征提取超时（秒）",
+    "type": "int",
+    "default": 45,
+    "slider": {
+      "min": 5,
+      "max": 180,
+      "step": 5
+    }
+  },
+  "max_candidates_per_library": {
+    "name": "每库最大候选数",
+    "type": "int",
+    "default": 80,
+    "slider": {
+      "min": 5,
+      "max": 200,
+      "step": 5
+    }
+  },
+  "log_recognition": {
+    "name": "在 AstrBot 日志显示识别过程",
+    "description": "输出 Provider、识别特征、库比对、置信度、角色判定等日志。",
+    "type": "bool",
+    "default": true
+  },
+  "only_group_at_or_private": {
+    "name": "群聊仅在 @Bot 时识图",
+    "description": "启用后群聊普通图片不会调用视觉模型；@Bot 的图片消息才会强制识图。",
+    "type": "bool",
+    "default": true
+  },
+  "self_character_name": {
+    "name": "Bot 自身角色名",
+    "description": "当识别结果达到人物阈值且名称与此值一致时，向当前 LLM 注入“图片人物就是 Bot 自己”的身份规则。",
+    "type": "string",
+    "default": "夏目安安"
+  },
+  "pending_memory_retention_hours": {
+    "name": "待管理员命名图片保留时间（小时）",
+    "description": "未知图片先进入待管理员命名区；默认保留 168 小时（7 天），到期自动清理。",
+    "type": "int",
+    "default": 168,
+    "slider": {
+      "min": 24,
+      "max": 720,
+      "step": 24
+    }
+  },
+  "context_learning_window_minutes": {
+    "name": "上下文身份学习窗口（兼容字段，已停用）",
+    "description": "兼容旧配置。v1.8 起聊天上下文不再用于给未知图片命名，因此此字段不会触发自动命名。",
+    "type": "int",
+    "default": 360,
+    "slider": {
+      "min": 30,
+      "max": 1440,
+      "step": 30
+    }
+  },
+  "context_learning_max_pending": {
+    "name": "每个会话待命名图片上限",
+    "description": "默认最多保留 20 张待管理员命名图片；达到上限时自动清理最旧的一张。",
+    "type": "int",
+    "default": 20,
+    "slider": {
+      "min": 1,
+      "max": 100,
+      "step": 1
+    }
+  },
+  "reference_visual_verification_enabled": {
+    "name": "启用参考图二阶段视觉核验",
+    "description": "对第一阶段筛选出的候选参考图再次进行真实视觉比对；可降低仅凭文字特征导致的误识别。",
+    "type": "bool",
+    "default": true
+  },
+  "ccip_enabled": {
+    "name": "启用三库 CCIP 视觉特征核验",
+    "description": "对预设库（魔裁）、人工视觉添加库和 Bot 图片库启用可选 CCIP 核验。CCIP 主要面向单一动漫人物图像，其他图片类型仍以视觉模型结果为基础；距离越小越相似。组件不可用时会回退到 AstrBot 视觉模型。",
+    "type": "bool",
+    "default": true
+  },
+  "ccip_model": {
+    "name": "CCIP 模型",
+    "description": "默认使用 ccip-caformer-24-randaug-pruned。",
+    "type": "string",
+    "default": "ccip-caformer-24-randaug-pruned"
+  },
+  "ccip_threshold": {
+    "name": "CCIP 默认相同阈值",
+    "description": "距离小于等于该值视为强视觉相似。官方默认模型阈值约为 0.178475。可按你的魔裁图库进行微调。",
+    "type": "float",
+    "default": 0.17847511429108218,
+    "slider": {
+      "min": 0.1,
+      "max": 0.35,
+      "step": 0.005
+    }
+  },
+  "ccip_top_candidates": {
+    "name": "CCIP 核验候选数",
+    "description": "先由视觉模型筛选，再对前 N 个魔裁候选做 CCIP，避免每次扫描全部参考图。",
+    "type": "int",
+    "default": 8,
+    "slider": {
+      "min": 1,
+      "max": 16,
+      "step": 1
+    }
+  },
+  "ccip_reference_images_per_entry": {
+    "name": "每个角色参与 CCIP 的参考图数",
+    "description": "每个角色最多取 N 张参考图，取最小距离作为该角色的视觉匹配距离。",
+    "type": "int",
+    "default": 3,
+    "slider": {
+      "min": 1,
+      "max": 8,
+      "step": 1
+    }
+  },
+  "ccip_strong_match_distance": {
+    "name": "CCIP 强匹配距离",
+    "description": "低于此距离会显著提升视觉匹配分。默认与官方阈值一致。",
+    "type": "float",
+    "default": 0.17847511429108218,
+    "slider": {
+      "min": 0.1,
+      "max": 0.35,
+      "step": 0.005
+    }
+  },
+  "ccip_reject_distance": {
+    "name": "CCIP 明显不匹配距离",
+    "description": "高于此距离会压低候选分数，用来阻止发色/服装等表面相似造成误识别。",
+    "type": "float",
+    "default": 0.3,
+    "slider": {
+      "min": 0.2,
+      "max": 0.6,
+      "step": 0.01
+    }
+  },
+  "ccip_reference_feature_size": {
+    "name": "CCIP参考图特征尺寸",
+    "description": "CCIP提取参考图/查询图特征时使用的输入尺寸。官方默认384。",
+    "type": "int",
+    "default": 384,
+    "slider": {
+      "min": 128,
+      "max": 768,
+      "step": 32
+    }
+  },
+  "ccip_use_merged_entry_feature": {
+    "name": "保存人物级CCIP综合特征",
+    "description": "为每个魔裁人物栏目根据其全部参考图生成综合CCIP特征，作为辅助资料保存；逐张参考图距离仍是最终核验依据。",
+    "type": "bool",
+    "default": true
+  }
+}
