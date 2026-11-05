@@ -163,7 +163,7 @@
   },
   "ccip_model": {
     "name": "CCIP 模型",
-    "description": "默认使用 ccip-caformer-24-randaug-pruned。",
+    "description": "默认使用 ccip-caformer-24-randaug-pruned。首次使用时检查本地目录和缓存，支持 Hub 镜像、直接 HTTP 下载及 VISION_MEMORY_CCIP_MODEL_DIR 离线模型目录。",
     "type": "string",
     "default": "ccip-caformer-24-randaug-pruned"
   },

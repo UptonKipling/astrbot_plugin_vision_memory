@@ -141,7 +141,7 @@ async function render(){
   const data=await loadLib(currentLib);
   const threshold=currentLib==='magic_trial_characters' ? `${Math.round((state.settings?.character_threshold??.42)*100)}%` : `${Math.round((state.settings?.general_threshold??.45)*100)}%`;
   const policy=currentLib==='magic_trial_characters' ? '二创友好 · 脸部/发型优先 · 服装弱惩罚' : '二创友好 · 稳定身份特征优先 · 低像素依赖';
-  const ccipState=state.ccip_available ? `CCIP：已安装 · ${esc(state.ccip_model||'默认模型')}` : 'CCIP：未安装，暂用视觉模型';
+  const ccipState=!state.ccip_available ? 'CCIP：依赖未安装，暂用视觉模型' : state.ccip_model_verified ? `CCIP：模型与推理已验证 · ${esc(state.ccip_model||'默认模型')}` : state.ccip_model_ready ? `CCIP：模型文件已就绪 · ${esc(state.ccip_model||'默认模型')}` : `CCIP：依赖已安装，首次使用需准备模型 · ${esc(state.ccip_model||'默认模型')}`;
   main.innerHTML=`<div class="toolbar"><div><div class="eyebrow">LIBRARY / ${esc(currentLib)}</div><h2>${esc(data.name)}</h2><div class="muted">匹配阈值 ${threshold} · ${policy} · 多图参考 · 每张参考图独立特征 · ${ccipState}</div></div><div class="actions"><button id="newEntry">＋ 新建栏目</button><button class="ghost" id="rebuildAll">重建全部参考图特征</button><button class="ghost" id="purge">执行遗忘清理</button></div></div><div class="cards">${(data.entries||[]).map(entryCard).join('')}</div>`;
   document.getElementById('newEntry').onclick=()=>openEditor(null);
   if(document.getElementById('rebuildAll')) document.getElementById('rebuildAll').onclick=startRebuild;

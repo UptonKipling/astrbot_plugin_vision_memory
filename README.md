@@ -1,7 +1,7 @@
 # 多模态视觉识图与图片记忆管理
 
 **插件标识：** `astrbot_plugin_vision_memory`  
-**当前版本：** V1.10.2  
+**当前版本：** V1.10.6  
 **作者：** UptonKipling  
 **适用框架：** AstrBot `>=4.24.1,<6`
 
@@ -68,19 +68,16 @@ data/plugins/astrbot_plugin_vision_memory/
 
 ## 三、依赖安装与国内镜像回退
 
-CCIP 为可选组件。插件首次启用且检测不到 `imgutils.metrics` 时，会尝试安装：
+CCIP 为可选组件。插件首次启用且检测不到 `imgutils.metrics` 时，会安装 `dghs-imgutils>=0.19.0,<0.20`，并补齐其运行依赖，包括：
 
-- `dghs-imgutils>=0.19.0,<0.20`；
-- `pillow`；
-- `huggingface-hub`；
-- `tqdm`；
-- `requests`；
-- `packaging`；
-- `scipy`；
-- `onnxruntime`；
-- `opencv-python`，无法使用时回退到 `opencv-python-headless`。
+- 图像与模型运行：Pillow、ONNX Runtime、OpenCV；
+- 数值与特征计算：SciPy、scikit-learn、pandas；
+- 模型与数据支持：Hugging Face Hub、hfutils、hbutils、tqdm；
+- 其余导入依赖：emoji、pilmoji、shapely、pyclipper、deprecation、filelock、bchlib、piexif、tokenizers、pyrfc6266、urlobject、requests、packaging。
 
-为避免 `dghs-imgutils` 的 `numpy<2` 依赖约束与 AstrBot 核心环境冲突，插件使用 `--no-deps` 安装该组件，再单独安装伴随依赖，不会主动用其依赖约束替换 AstrBot 的 NumPy。
+OpenCV 无法使用时回退到 `opencv-python-headless`。为避免 `dghs-imgutils` 的 `numpy<2` 依赖约束与 AstrBot 核心环境冲突，插件使用 `--no-deps` 安装该组件，再单独安装伴随依赖，不会主动用其依赖约束替换 AstrBot 的 NumPy。
+
+pip 安装成功不代表 CCIP 必然可用；插件还会实际执行 `imgutils.metrics` 导入检查。若导入失败，日志会记录具体异常类型、错误信息和后台堆栈，再回退到视觉模型。
 
 每一项 pip 安装操作均按以下顺序尝试：
 
@@ -90,7 +87,32 @@ CCIP 为可选组件。插件首次启用且检测不到 `imgutils.metrics` 时�
 
 安装来源和失败回退情况会写入 AstrBot 日志。所有来源均失败时，插件仍保留视觉模型识别功能，但不会执行 CCIP 核验。
 
-上述镜像回退针对 **pip 依赖包安装**。CCIP 模型文件首次使用时的下载属于独立过程，仍取决于当前运行环境能否访问模型来源。
+### CCIP 模型文件下载与缓存
+
+pip 依赖安装和 CCIP 模型下载是两个独立环节。首次执行 CCIP 特征提取时，插件会准备 `deepghs/ccip_onnx` 中所选模型的 `model_feat.onnx`、`model_metrics.onnx` 和 `metrics.json`，分别用于特征提取、距离计算和默认阈值读取。
+
+模型准备按以下顺序执行：
+
+1. 检查插件本地模型目录，再检查 Hugging Face 缓存；三个文件完整时直接使用，无需联网。
+2. 通过 Hugging Face Hub 依次尝试用户通过 `HF_ENDPOINT` 指定的来源、国内镜像 `https://hf-mirror.com`、官方源 `https://huggingface.co`。
+3. Hub 请求全部失败时，使用直接 HTTP 下载，不再依赖 Hub 的 HEAD 元数据请求。每个来源分别尝试“继承系统代理”和“绕过代理变量”，以兼容代理失效或必须代理的不同环境。
+4. 直接下载写入插件模型目录，校验文件长度后再替换正式文件；中断留下的 `.part` 文件不会被当成完整模型。
+
+可通过环境变量 `VISION_MEMORY_CCIP_MODEL_DIR` 指定离线模型根目录。目录结构必须为：
+
+```text
+模型根目录/
+└── ccip-caformer-24-randaug-pruned/
+    ├── model_feat.onnx
+    ├── model_metrics.onnx
+    └── metrics.json
+```
+
+如改用其他 CCIP 模型，第二级目录名应与配置中的模型名称一致。设置环境变量后需要完全重启 AstrBot 启动器，确保实际运行进程继承该变量。
+
+同一进程中的并发上传或识别任务会共用模型准备锁，避免重复下载同一个大型 ONNX 文件。模型下载进度和来源切换记录在 AstrBot 日志中，首次下载耗时会明显长于后续缓存读取。日志还会记录 Hugging Face 离线开关、代理变量是否存在及异常调用链，但不会记录代理地址或凭据。
+
+WebUI 分别显示“依赖未安装”“首次使用需准备模型”“模型文件已就绪”和“模型与推理已验证”。所有模型来源均失败时，本次 CCIP 核验回退到视觉模型；已完成的图片上传和视觉识别结果不受影响。
 
 ## 四、初始配置
 

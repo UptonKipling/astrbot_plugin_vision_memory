@@ -8,5 +8,8 @@
 # The plugin installs dghs-imgutils itself at startup with --no-deps and
 # pulls in its companion dependencies separately - see `_ccip_backend_available`
 # in main.py. Each pip operation tries the configured/default index, then
-# Tsinghua and Aliyun mirrors. CCIP stays optional: without it the plugin
-# falls back to the AstrBot vision provider.
+# Tsinghua and Aliyun mirrors. CCIP ONNX model files are a separate download:
+# main.py checks VISION_MEMORY_CCIP_MODEL_DIR and the Hugging Face cache, then
+# tries HF_ENDPOINT, hf-mirror.com and huggingface.co. If Hub metadata requests
+# fail, direct HTTP downloads try with and without proxy environment variables.
+# CCIP stays optional: without it the plugin falls back to AstrBot Vision.

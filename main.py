@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -55,6 +56,34 @@ PIP_MIRROR_URLS = (
     "https://mirrors.aliyun.com/pypi/simple/",
 )
 
+# dghs-imgutils 0.19 imports more than the CCIP module itself when
+# imgutils.metrics is loaded. Install its declared runtime dependencies except
+# numpy (AstrBot owns that version) and OpenCV (handled with a headless fallback).
+CCIP_COMPANION_PACKAGES = (
+    "hbutils>=0.9.0",
+    "pillow",
+    "scikit-learn",
+    "huggingface-hub",
+    "tqdm",
+    "pandas",
+    "scipy",
+    "emoji>=2.5.0,<2.12",
+    "pilmoji>=1.3.0",
+    "shapely!=2.0.7",
+    "pyclipper",
+    "deprecation>=2.0.0",
+    "hfutils>=0.9.0",
+    "filelock",
+    "bchlib>=1.0.0,!=2.0.0,!=2.0.1,!=2.1.0,!=2.1.1,!=2.1.2",
+    "piexif",
+    "tokenizers>=0.20.0",
+    "pyrfc6266>=1",
+    "urlobject>=2",
+    "requests",
+    "packaging",
+    "onnxruntime",
+)
+
 
 def _pip_install(*packages: str, no_deps: bool = False, uninstall_first: tuple = ()) -> None:
     def _run(args: list) -> None:
@@ -87,12 +116,22 @@ def _pip_install(*packages: str, no_deps: bool = False, uninstall_first: tuple =
     raise last_exc if last_exc else RuntimeError("pip install failed")
 
 
+def _log_ccip_import_error(stage: str, exc: Exception) -> None:
+    logger.warning(
+        "[VisionMemory] CCIP 导入失败（%s）：%s: %s",
+        stage,
+        type(exc).__name__,
+        _clean(exc, 500),
+    )
+    logger.debug("[VisionMemory] CCIP import traceback", exc_info=True)
+
+
 def _ccip_backend_available() -> bool:
     try:
         importlib.import_module("imgutils.metrics")
         return True
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_ccip_import_error("安装前检查", exc)
     try:
         logger.info("[VisionMemory] CCIP component missing; installing dghs-imgutils with --no-deps "
                     "(bypassing its numpy<2 pin to stay compatible with AstrBot core) ...")
@@ -101,9 +140,8 @@ def _ccip_backend_available() -> bool:
         logger.warning("[VisionMemory] dghs-imgutils installation failed: %s", exc)
         return False
     companion_sets = (
-        ("pillow", "huggingface-hub", "tqdm", "requests", "packaging", "scipy", "onnxruntime", "opencv-python"),
-        ("pillow", "huggingface-hub", "tqdm", "requests", "packaging", "scipy", "onnxruntime",
-         "opencv-python-headless"),  # headless fallback for servers without libGL
+        (*CCIP_COMPANION_PACKAGES, "opencv-python"),
+        (*CCIP_COMPANION_PACKAGES, "opencv-python-headless"),
     )
     for companions in companion_sets:
         headless = "opencv-python-headless" in companions
@@ -117,29 +155,16 @@ def _ccip_backend_available() -> bool:
             importlib.import_module("imgutils.metrics")
             logger.info("[VisionMemory] dghs-imgutils is ready; local CCIP verification enabled.")
             return True
-        except Exception:
-            continue
-    logger.warning("[VisionMemory] dghs-imgutils is installed but cannot be imported "
-                   "(missing system libraries?); local CCIP verification disabled, "
-                   "falling back to the vision provider.")
+        except Exception as exc:
+            _log_ccip_import_error("无界面 OpenCV 回退" if headless else "常规 OpenCV", exc)
+    logger.warning("[VisionMemory] dghs-imgutils 已安装但无法导入；请根据上方的具体异常检查依赖或系统运行库。"
+                   "本地 CCIP 核验已停用，将回退到视觉模型。")
     return False
-
-
-if _ccip_backend_available():
-    try:
-        from imgutils.metrics import ccip_difference, ccip_extract_feature, ccip_default_threshold, ccip_merge
-        CCIP_AVAILABLE = True
-    except Exception:  # pragma: no cover
-        ccip_difference = ccip_extract_feature = ccip_default_threshold = ccip_merge = None
-        CCIP_AVAILABLE = False
-else:
-    ccip_difference = ccip_extract_feature = ccip_default_threshold = ccip_merge = None
-    CCIP_AVAILABLE = False
 
 
 PLUGIN_ID = "astrbot_plugin_vision_memory"
 AUTHOR = "UptonKipling"
-VERSION = "1.10.2"
+VERSION = "1.10.6"
 DATA_VERSION = 9
 
 CHARACTER_NAMES = [
@@ -162,6 +187,278 @@ def _now() -> float:
 def _clean(value: Any, limit: int = 4000) -> str:
     text = str(value or "").replace("\x00", " ").strip()
     return text[:limit]
+
+
+# Run optional CCIP setup only after every helper used by its diagnostics has
+# been defined. A missing dependency must never prevent the plugin itself loading.
+if _ccip_backend_available():
+    try:
+        from huggingface_hub import hf_hub_download
+        from imgutils.metrics import ccip_difference, ccip_extract_feature, ccip_default_threshold, ccip_merge
+        CCIP_AVAILABLE = True
+    except Exception as exc:  # pragma: no cover
+        _log_ccip_import_error("函数导入", exc)
+        hf_hub_download = None
+        ccip_difference = ccip_extract_feature = ccip_default_threshold = ccip_merge = None
+        CCIP_AVAILABLE = False
+else:
+    hf_hub_download = None
+    ccip_difference = ccip_extract_feature = ccip_default_threshold = ccip_merge = None
+    CCIP_AVAILABLE = False
+
+
+# CCIP Python dependencies and their ONNX model files come from different
+# services. Pre-download every file used by extraction/comparison/thresholds so
+# imgutils can subsequently load them from the same Hugging Face local cache.
+CCIP_MODEL_REPOSITORY = "deepghs/ccip_onnx"
+CCIP_MODEL_FILES = ("model_feat.onnx", "model_metrics.onnx", "metrics.json")
+CCIP_HF_ENDPOINTS = ("https://hf-mirror.com", "https://huggingface.co")
+CCIP_LOCAL_DIR_ENV = "VISION_MEMORY_CCIP_MODEL_DIR"
+_CCIP_MODEL_LOCK = threading.Lock()
+_CCIP_READY_MODELS: set[str] = set()
+_CCIP_VERIFIED_MODELS: set[str] = set()
+
+
+def _ccip_endpoints() -> list[str]:
+    """Prefer an explicit user endpoint, then the China mirror, then the Hub."""
+    endpoints = []
+    custom = os.environ.get("HF_ENDPOINT", "").strip().rstrip("/")
+    for endpoint in (custom, *CCIP_HF_ENDPOINTS):
+        if endpoint and endpoint not in endpoints:
+            endpoints.append(endpoint)
+    return endpoints
+
+
+def _ccip_exception_detail(exc: BaseException | None) -> str:
+    """Expose the wrapped network error that LocalEntryNotFoundError hides."""
+    if exc is None:
+        return "无详细异常"
+    parts = []
+    current: BaseException | None = exc
+    seen = set()
+    while current is not None and id(current) not in seen and len(parts) < 5:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {_clean(current, 350)}")
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts)
+
+
+def _ccip_log_network_environment() -> None:
+    """Log offline/proxy state without exposing proxy URLs or credentials."""
+    try:
+        constants = importlib.import_module("huggingface_hub.constants")
+        hub_offline = bool(getattr(constants, "HF_HUB_OFFLINE", False))
+    except Exception:
+        hub_offline = os.environ.get("HF_HUB_OFFLINE", "").lower() in {"1", "true", "yes", "on"}
+    transformers_offline = os.environ.get("TRANSFORMERS_OFFLINE", "")
+    proxy_vars = [key for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy") if os.environ.get(key)]
+    logger.info(
+        "[VisionMemory][CCIP] 网络环境：HF_HUB_OFFLINE=%s，TRANSFORMERS_OFFLINE=%s，代理变量=%s",
+        hub_offline,
+        transformers_offline or "未设置",
+        "、".join(sorted(set(proxy_vars))) if proxy_vars else "未设置",
+    )
+
+
+def _ccip_model_root() -> Path:
+    custom = os.environ.get(CCIP_LOCAL_DIR_ENV, "").strip()
+    if custom:
+        return Path(custom).expanduser().resolve()
+    try:
+        if get_astrbot_plugin_data_path:
+            return Path(get_astrbot_plugin_data_path()) / PLUGIN_ID / "ccip_models"
+    except Exception:
+        pass
+    return Path.cwd() / "data" / "plugin_data" / PLUGIN_ID / "ccip_models"
+
+
+def _ccip_local_model_dir(model: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", model or ""):
+        raise ValueError("CCIP 模型名称只能包含字母、数字、点、下划线和连字符。")
+    return _ccip_model_root() / model
+
+
+def _ccip_local_model_complete(model: str) -> bool:
+    try:
+        root = _ccip_local_model_dir(model)
+        return all((root / filename).is_file() and (root / filename).stat().st_size > 0 for filename in CCIP_MODEL_FILES)
+    except Exception:
+        return False
+
+
+def _ccip_local_file_for_repo_filename(filename: str) -> Path | None:
+    parts = filename.split("/")
+    if len(parts) != 2 or parts[1] not in CCIP_MODEL_FILES:
+        return None
+    try:
+        path = _ccip_local_model_dir(parts[0]) / parts[1]
+        return path if path.is_file() and path.stat().st_size > 0 else None
+    except Exception:
+        return None
+
+
+def _install_ccip_local_loader() -> None:
+    """Let imgutils resolve plugin-managed model files before using the Hub."""
+    ccip_module = importlib.import_module("imgutils.metrics.ccip")
+    original = getattr(ccip_module, "hf_hub_download", None)
+    if original is None or getattr(original, "_vision_memory_local_loader", False):
+        return
+
+    def local_first_download(repo_id, filename, *args, **kwargs):
+        if repo_id == CCIP_MODEL_REPOSITORY:
+            local_path = _ccip_local_file_for_repo_filename(filename)
+            if local_path is not None:
+                return str(local_path)
+        return original(repo_id, filename, *args, **kwargs)
+
+    local_first_download._vision_memory_local_loader = True
+    ccip_module.hf_hub_download = local_first_download
+
+
+def _activate_hf_endpoint(endpoint: str) -> None:
+    """Make later imgutils downloads use the endpoint that actually worked."""
+    os.environ["HF_ENDPOINT"] = endpoint
+    try:
+        constants = importlib.import_module("huggingface_hub.constants")
+        if hasattr(constants, "ENDPOINT"):
+            constants.ENDPOINT = endpoint
+    except Exception as exc:  # pragma: no cover - old hub compatibility
+        logger.debug("[VisionMemory][CCIP] 无法更新 Hugging Face 运行端点：%s", _clean(exc, 200))
+
+
+def _download_ccip_file_direct(session: Any, endpoint: str, model: str, filename: str) -> None:
+    """Download one model file without the Hub HEAD/metadata request."""
+    target = _ccip_local_model_dir(model) / filename
+    if target.is_file() and target.stat().st_size > 0:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    url = f"{endpoint}/{CCIP_MODEL_REPOSITORY}/resolve/main/{model}/{filename}"
+    temporary = target.with_name(target.name + f".{uuid.uuid4().hex[:8]}.part")
+    try:
+        with session.get(
+            url,
+            stream=True,
+            allow_redirects=True,
+            timeout=(15, 60),
+            headers={"User-Agent": "astrbot-plugin-vision-memory/1.10", "Accept-Encoding": "identity"},
+        ) as response:
+            response.raise_for_status()
+            expected = int(response.headers.get("Content-Length", "0") or 0)
+            written = 0
+            with temporary.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        handle.write(chunk)
+                        written += len(chunk)
+            if written <= 0 or (expected and written != expected):
+                raise IOError(f"下载文件不完整：预期 {expected} 字节，实际 {written} 字节。")
+        os.replace(temporary, target)
+        logger.info("[VisionMemory][CCIP] 直接下载完成：%s（%.1f MB）", filename, target.stat().st_size / 1024 / 1024)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _direct_download_ccip_model(model: str) -> None:
+    """Use plain HTTPS, with and without proxy variables, as a final fallback."""
+    import requests
+
+    last_exc: Exception | None = None
+    for endpoint in _ccip_endpoints():
+        for trust_env in (True, False):
+            mode = "继承系统代理" if trust_env else "绕过代理变量"
+            try:
+                logger.info("[VisionMemory][CCIP] 正在直接下载模型，来源=%s，模式=%s", endpoint, mode)
+                with requests.Session() as session:
+                    session.trust_env = trust_env
+                    for filename in CCIP_MODEL_FILES:
+                        _download_ccip_file_direct(session, endpoint, model, filename)
+                _install_ccip_local_loader()
+                _CCIP_READY_MODELS.add(model)
+                logger.info("[VisionMemory][CCIP] 本地模型目录已就绪：%s", _ccip_local_model_dir(model))
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                logger.warning(
+                    "[VisionMemory][CCIP] 直接下载失败（%s，%s）：%s；将尝试下一方式。",
+                    endpoint,
+                    mode,
+                    _ccip_exception_detail(exc),
+                )
+    raise RuntimeError("直接 HTTP 下载也未能准备完整 CCIP 模型。") from last_exc
+
+
+def _ensure_ccip_model(model: str) -> None:
+    """Prepare a model from local files, the HF cache, Hub, or direct HTTPS."""
+    if model in _CCIP_READY_MODELS:
+        return
+    with _CCIP_MODEL_LOCK:
+        if model in _CCIP_READY_MODELS:
+            return
+        if _ccip_local_model_complete(model):
+            _install_ccip_local_loader()
+            _CCIP_READY_MODELS.add(model)
+            logger.info("[VisionMemory][CCIP] 使用本地模型目录：%s", _ccip_local_model_dir(model))
+            return
+
+        last_exc: Exception | None = None
+        if hf_hub_download is not None:
+            try:
+                for filename in CCIP_MODEL_FILES:
+                    hf_hub_download(
+                        repo_id=CCIP_MODEL_REPOSITORY,
+                        filename=f"{model}/{filename}",
+                        local_files_only=True,
+                    )
+                _CCIP_READY_MODELS.add(model)
+                logger.info("[VisionMemory][CCIP] Hugging Face 缓存完整，直接使用：%s", model)
+                return
+            except Exception:
+                pass  # Some files are absent or stale; obtain a complete snapshot below.
+
+            for endpoint in _ccip_endpoints():
+                try:
+                    logger.info("[VisionMemory][CCIP] 正在通过 %s 检查/下载模型 %s（3 个必要文件）", endpoint, model)
+                    for filename in CCIP_MODEL_FILES:
+                        hf_hub_download(
+                            repo_id=CCIP_MODEL_REPOSITORY,
+                            filename=f"{model}/{filename}",
+                            endpoint=endpoint,
+                        )
+                    _activate_hf_endpoint(endpoint)
+                    _CCIP_READY_MODELS.add(model)
+                    logger.info("[VisionMemory][CCIP] 模型文件已就绪，来源：%s", endpoint)
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    logger.warning(
+                        "[VisionMemory][CCIP] Hub 来源 %s 失败：%s；将尝试下一来源。",
+                        endpoint,
+                        _ccip_exception_detail(exc),
+                    )
+
+        try:
+            _direct_download_ccip_model(model)
+            return
+        except Exception as exc:
+            last_exc = exc
+        detail = _ccip_exception_detail(last_exc)
+        raise RuntimeError(
+            "CCIP 模型准备失败。已检查本地目录和 Hugging Face 缓存，并尝试 Hub 与直接 HTTP 下载；"
+            f"可通过 {CCIP_LOCAL_DIR_ENV} 指定离线模型目录。最后错误：" + detail
+        ) from last_exc
+
+
+def _ccip_extract_with_model_support(path: str, size: int, model: str) -> Any:
+    _ensure_ccip_model(model)
+    feature = ccip_extract_feature(path, size, model)
+    _CCIP_VERIFIED_MODELS.add(model)
+    return feature
+
+
+_ccip_log_network_environment()
 
 
 def _safe_id(value: Any) -> str:
@@ -638,7 +935,7 @@ class VisionMemoryPlugin(Star):
         cached = self._ccip_feature_from_list(image.get("ccip_feature"))
         if cached is not None and cached_model == model and cached_size == size:
             return cached
-        feature = await asyncio.to_thread(ccip_extract_feature, path, size, model)
+        feature = await asyncio.to_thread(_ccip_extract_with_model_support, path, size, model)
         image["ccip_feature"] = self._ccip_feature_to_list(feature)
         image["ccip_model"] = model
         image["ccip_size"] = size
@@ -797,7 +1094,7 @@ class VisionMemoryPlugin(Star):
                 topn=max(1,int(self._setting("ccip_top_candidates",8) or 8))
                 per_entry=max(1,int(self._setting("ccip_reference_images_per_entry",3) or 3))
                 try:
-                    qfeat=await asyncio.to_thread(ccip_extract_feature,image_path,size,model)
+                    qfeat=await asyncio.to_thread(_ccip_extract_with_model_support,image_path,size,model)
                     logger.info("[VisionMemory][CCIP] query feature extracted model=%s size=%s",model,size)
                     for item in stage[:topn]:
                         c=lookup.get(item["id"],{}); rows=c.get("ref_rows",[])[:per_entry]
@@ -809,7 +1106,7 @@ class VisionMemoryPlugin(Star):
                                 if ref_record is not None:
                                     feat=await self._ccip_extract_for_image(ref_record,model,size)
                                 if feat is None:
-                                    feat=await asyncio.to_thread(ccip_extract_feature,r["path"],size,model)
+                                    feat=await asyncio.to_thread(_ccip_extract_with_model_support,r["path"],size,model)
                                 d=float(await asyncio.to_thread(ccip_difference,qfeat,feat,size,model))
                                 distances.append({"reference_index":r["index"],"filename":r["filename"],"distance":d})
                             except Exception as exc:
@@ -1773,6 +2070,8 @@ class VisionMemoryPlugin(Star):
             "pending_count": len(self._pending_items()),
             "ccip_available": CCIP_AVAILABLE,
             "ccip_model": self._setting("ccip_model", "ccip-caformer-24-randaug-pruned"),
+            "ccip_model_ready": self._setting("ccip_model", "ccip-caformer-24-randaug-pruned") in _CCIP_READY_MODELS,
+            "ccip_model_verified": self._setting("ccip_model", "ccip-caformer-24-randaug-pruned") in _CCIP_VERIFIED_MODELS,
             "rebuild_jobs": [x for x in self._rebuild_jobs.values() if x.get("status") == "running"],
         })
 
@@ -1892,13 +2191,17 @@ class VisionMemoryPlugin(Star):
             return error_response("image limit reached", status_code=400)
         target_dir = self.images_root / library / entry["id"]
         target_dir.mkdir(parents=True, exist_ok=True)
-        filename = _safe_id(original_name)
-        target = target_dir / f"{uuid.uuid4().hex[:8]}_{filename}"
+        # AstrBot 4.29+ appends a 32-character UUID and ".tmp" while saving.
+        # Keep the on-disk name short so Windows paths do not cross MAX_PATH;
+        # retain the original name separately for display and downloads.
+        storage_name = f"{uuid.uuid4().hex[:16]}{suffix}"
+        target = target_dir / storage_name
         try:
             await upload.save(target)
         except Exception as exc:
-            return error_response(f"upload save failed: {_clean(exc, 300)}", status_code=500)
-        image_item = {"id": uuid.uuid4().hex, "filename": target.name, "path": str(target), "created_at": _now(), "features": "", "sha256": _file_hash(str(target)), "ccip_feature": [], "ccip_model": "", "ccip_size": 0}
+            logger.error("[VisionMemory] 图片保存失败 target=%s error=%s", target, _clean(exc, 500), exc_info=True)
+            return error_response(f"图片保存失败，请检查数据目录权限或路径长度：{_clean(exc, 300)}", status_code=500)
+        image_item = {"id": uuid.uuid4().hex, "filename": original_name, "storage_name": storage_name, "path": str(target), "created_at": _now(), "features": "", "sha256": _file_hash(str(target)), "ccip_feature": [], "ccip_model": "", "ccip_size": 0}
         entry.setdefault("images", []).append(image_item)
         entry["updated_at"] = _now()
         try:
